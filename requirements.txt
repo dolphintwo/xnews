@@ -1,0 +1,7 @@
+playwright
+openai
+python-dotenv
+loguru
+pydantic
+httpx[socks]
+apscheduler
