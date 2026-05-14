@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XNews 日报查看</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#121933; --text:#e7ebff; --muted:#9aa3c7; --line:#29335f; --accent:#6ea8fe; --day:#0d1430; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+    .layout { display:grid; grid-template-columns: 280px 1fr; min-height:100vh; }
+    .left { border-right:1px solid var(--line); padding:12px; background:var(--panel); }
+    .right { padding:16px; overflow:auto; }
+    h1 { font-size:17px; margin:0 0 8px; }
+    .muted { color:var(--muted); font-size:12px; }
+
+    .calendar-head { display:flex; align-items:center; justify-content:space-between; margin:10px 0 6px; }
+    .calendar-head button { border:1px solid var(--line); background:#0d1430; color:var(--text); border-radius:8px; padding:2px 8px; cursor:pointer; }
+    .calendar-head strong { font-size:13px; }
+
+    .week { display:grid; grid-template-columns: repeat(7, 1fr); gap:4px; margin-bottom:4px; }
+    .week div { text-align:center; color:var(--muted); font-size:11px; }
+    .days { display:grid; grid-template-columns: repeat(7, 1fr); gap:4px; }
+    .day { height:30px; border:1px solid var(--line); background:var(--day); color:var(--text); border-radius:7px; cursor:pointer; font-size:11px; }
+    .day.empty { visibility:hidden; cursor:default; }
+    .day.has-data { border-color: var(--accent); }
+    .day.selected { background:#214087; border-color:#89b4ff; }
+
+    .hour-title { display:block; margin:10px 0 6px; font-size:12px; color:var(--muted); }
+    .hour-cards { display:grid; grid-template-columns: repeat(2, 1fr); gap:6px; }
+    .hour-card {
+      border:1px solid var(--line);
+      background:#0d1430;
+      color:var(--text);
+      border-radius:8px;
+      padding:7px 5px;
+      cursor:pointer;
+      font-size:11px;
+      text-align:center;
+    }
+    .hour-card.selected { border-color:#89b4ff; background:#214087; }
+
+    .hour-badges { display:inline-flex; gap:4px; margin-left:4px; vertical-align:middle; }
+    .badge { display:inline-block; padding:1px 5px; border-radius:999px; font-size:10px; line-height:1.4; font-weight:600; }
+    .badge-json { background:#1d4ed8; color:#dbeafe; }
+    .badge-md { background:#047857; color:#d1fae5; }
+    .stats { margin-top:10px; padding:8px; border:1px solid var(--line); border-radius:8px; background:#0d1430; font-size:12px; }
+
+    .tabs { display:flex; gap:8px; margin-bottom:12px; }
+    .tab-btn {
+      border:1px solid var(--line);
+      background:#0d1430;
+      color:var(--text);
+      border-radius:8px;
+      padding:8px 14px;
+      cursor:pointer;
+      font-size:13px;
+    }
+    .tab-btn.active { border-color:#89b4ff; background:#214087; }
+
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+
+    .section h2 { margin:0 0 10px; font-size:16px; }
+    table { width:100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { border:1px solid var(--line); padding:8px; vertical-align: top; font-size:13px; }
+    th { background:#111a3e; text-align:left; }
+
+    th.col-time, td.col-time { width: 136px; white-space: nowrap; }
+    th.col-author, td.col-author { width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .tweet-text { white-space: pre-wrap; word-break: break-word; }
+    .md { border:1px solid var(--line); border-radius:8px; padding:12px; background:#0d1430; line-height:1.6; }
+    .md h1,.md h2,.md h3 { margin:10px 0 8px; }
+    .md ul { padding-left:20px; }
+    .md code { background:#18214a; padding:1px 4px; border-radius:4px; }
+    .empty { color:var(--muted); padding:12px; border:1px dashed var(--line); border-radius:8px; }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .left { border-right:none; border-bottom:1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="left">
+      <h1>XNews 日报查看</h1>
+      <div class="muted">读取 caches 下每日日报</div>
+
+      <div class="calendar-head">
+        <button id="prevMonth">◀</button>
+        <strong id="monthTitle">-</strong>
+        <button id="nextMonth">▶</button>
+      </div>
+      <div class="week">
+        <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div>
+      </div>
+      <div class="days" id="days"></div>
+
+      <span class="hour-title">时段（小时）</span>
+      <div id="hourCards" class="hour-cards"></div>
+
+      <div class="stats" id="stats">加载中...</div>
+    </aside>
+
+    <main class="right">
+      <div class="tabs">
+        <button id="tabJson" class="tab-btn" data-tab="json">推文列表</button>
+        <button id="tabMd" class="tab-btn active" data-tab="md">日报汇总</button>
+      </div>
+
+      <section id="panelJson" class="tab-panel active section">
+        <h2>JSON 推文表格</h2>
+        <div id="jsonView" class="empty">暂无数据</div>
+      </section>
+
+      <section id="panelMd" class="tab-panel section">
+        <h2>Markdown 日报</h2>
+        <div id="mdView" class="empty">暂无日报</div>
+      </section>
+    </main>
+  </div>
+
+<script>
+const state = {
+  reports: [],
+  dateMap: new Map(),
+  currentDate: "",
+  currentHour: "",
+  currentMonth: "",
+  currentTab: "json",
+};
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderInline(s) {
+  return escapeHtml(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+
+function renderMarkdown(md) {
+  if (!md || !md.trim()) return '<div class="empty">暂无日报</div>';
+  const lines = md.split(/\r?\n/);
+  let html = "";
+  let inList = false;
+
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { closeList(); continue; }
+
+    if (line.startsWith("### ")) { closeList(); html += `<h3>${renderInline(line.slice(4))}</h3>`; continue; }
+    if (line.startsWith("## ")) { closeList(); html += `<h2>${renderInline(line.slice(3))}</h2>`; continue; }
+    if (line.startsWith("# ")) { closeList(); html += `<h1>${renderInline(line.slice(2))}</h1>`; continue; }
+
+    if (line.startsWith("- ")) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      html += `<li>${renderInline(line.slice(2))}</li>`;
+      continue;
+    }
+
+    closeList();
+    html += `<p>${renderInline(line)}</p>`;
+  }
+
+  closeList();
+  return `<div class="md">${html}</div>`;
+}
+
+function buildDateMap() {
+  state.dateMap = new Map();
+  for (const r of state.reports) {
+    if (!state.dateMap.has(r.date)) state.dateMap.set(r.date, []);
+    state.dateMap.get(r.date).push(r);
+  }
+  for (const [k, v] of state.dateMap.entries()) {
+    v.sort((a, b) => b.hour.localeCompare(a.hour));
+    state.dateMap.set(k, v);
+  }
+}
+
+function monthKeyFromDate(dateStr) {
+  return dateStr.slice(0, 7);
+}
+
+function parseMonthKey(key) {
+  const [y, m] = key.split("-").map(Number);
+  return { y, m };
+}
+
+function addMonth(key, delta) {
+  const { y, m } = parseMonthKey(key);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function toDateStr(y, m, d) {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function renderCalendar() {
+  const title = document.getElementById("monthTitle");
+  const daysEl = document.getElementById("days");
+  const { y, m } = parseMonthKey(state.currentMonth);
+
+  title.textContent = `${y}-${String(m).padStart(2, "0")}`;
+  daysEl.innerHTML = "";
+
+  const first = new Date(y, m - 1, 1);
+  const startOffset = (first.getDay() + 6) % 7;
+  const totalDays = new Date(y, m, 0).getDate();
+
+  for (let i = 0; i < startOffset; i++) {
+    const cell = document.createElement("button");
+    cell.className = "day empty";
+    daysEl.appendChild(cell);
+  }
+
+  for (let d = 1; d <= totalDays; d++) {
+    const dateStr = toDateStr(y, m, d);
+    const cell = document.createElement("button");
+    cell.className = "day";
+    cell.textContent = String(d);
+
+    const hasData = state.dateMap.has(dateStr);
+    if (hasData) cell.classList.add("has-data");
+    if (dateStr === state.currentDate) cell.classList.add("selected");
+
+    cell.addEventListener("click", async () => {
+      state.currentDate = dateStr;
+      state.currentHour = "";
+      renderCalendar();
+      renderHourCards();
+      await loadReport();
+    });
+
+    daysEl.appendChild(cell);
+  }
+}
+
+function renderHourCards() {
+  const hourBox = document.getElementById("hourCards");
+  const hours = state.dateMap.get(state.currentDate) || [];
+
+  if (!hours.length) {
+    hourBox.innerHTML = `<div class="empty" style="grid-column:1/-1;">该日期暂无时段数据</div>`;
+    state.currentHour = "";
+    return;
+  }
+
+  if (!state.currentHour || !hours.find(h => h.hour === state.currentHour)) {
+    state.currentHour = hours[0].hour;
+  }
+
+  hourBox.innerHTML = hours.map(h => {
+    const selected = h.hour === state.currentHour ? "selected" : "";
+    const badges = [
+      h.has_json ? '<span class="badge badge-json">JSON</span>' : '',
+      h.has_md ? '<span class="badge badge-md">MD</span>' : ''
+    ].join('');
+
+    return `<button class="hour-card ${selected}" data-hour="${h.hour}">${h.hour}:00 ${badges ? `<span class="hour-badges">${badges}</span>` : ""}</button>`;
+  }).join("");
+
+  hourBox.querySelectorAll(".hour-card").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      state.currentHour = btn.getAttribute("data-hour");
+      renderHourCards();
+      await loadReport();
+    });
+  });
+}
+
+function formatTweetTime(raw) {
+  const source = String(raw || "").trim();
+  const m = source.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})$/);
+  if (!m) return source;
+
+  const datePart = m[1];
+  const timePart = m[2];
+
+  const now = new Date();
+  const yy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const today = `${yy}-${mm}-${dd}`;
+
+  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const yyy = y.getFullYear();
+  const ymm = String(y.getMonth() + 1).padStart(2, "0");
+  const ydd = String(y.getDate()).padStart(2, "0");
+  const yesterday = `${yyy}-${ymm}-${ydd}`;
+
+  if (datePart === today) return `当日${timePart}`;
+  if (datePart === yesterday) return `昨日 ${timePart}`;
+  return `${datePart} ${timePart}`;
+}
+
+function renderJsonTable(data) {
+  const box = document.getElementById("jsonView");
+  const tweets = (data && data.tweets) || [];
+  if (!tweets.length) {
+    box.className = "empty";
+    box.innerHTML = "该时段无 JSON 推文数据";
+    return;
+  }
+
+  const sortedTweets = [...tweets].sort((a, b) => {
+    const ta = Date.parse(String(a.time || "").replace(" ", "T"));
+    const tb = Date.parse(String(b.time || "").replace(" ", "T"));
+
+    if (!Number.isNaN(ta) && !Number.isNaN(tb)) return tb - ta;
+    return String(b.time || "").localeCompare(String(a.time || ""));
+  });
+
+  const rows = sortedTweets.map(t => `
+    <tr>
+      <td class="col-time">${escapeHtml(formatTweetTime(t.time || ""))}</td>
+      <td class="col-author">${escapeHtml(t.author || "")}</td>
+      <td class="tweet-text">${escapeHtml(t.text || "")}</td>
+    </tr>`).join("");
+
+  box.className = "";
+  box.innerHTML = `
+    <table>
+      <thead><tr><th class="col-time">时间</th><th class="col-author">作者</th><th>内容</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function switchTab(tab) {
+  state.currentTab = tab;
+  document.getElementById("tabJson").classList.toggle("active", tab === "json");
+  document.getElementById("tabMd").classList.toggle("active", tab === "md");
+  document.getElementById("panelJson").classList.toggle("active", tab === "json");
+  document.getElementById("panelMd").classList.toggle("active", tab === "md");
+}
+
+function renderStats(report, data) {
+  const stats = document.getElementById("stats");
+  const ts = data && data.timestamp ? data.timestamp : "-";
+  const cnt = data && Array.isArray(data.tweets) ? data.tweets.length : 0;
+  stats.innerHTML = `
+    日期：${report?.date || state.currentDate || "-"}<br>
+    小时：${report?.hour || "-"}:00<br>
+    JSON：${report?.has_json ? "有" : "无"}<br>
+    MD：${report?.has_md ? "有" : "无"}<br>
+    抓取时间：${escapeHtml(ts)}<br>
+    推文数：${cnt}`;
+}
+
+async function loadReport() {
+  const report = state.reports.find(r => r.date === state.currentDate && r.hour === state.currentHour);
+  if (!report) {
+    renderStats(null, null);
+    renderJsonTable(null);
+    const mdBox = document.getElementById("mdView");
+    mdBox.className = "empty";
+    mdBox.innerHTML = "该日期暂无时段数据";
+    return;
+  }
+
+  const resp = await fetch(`/api/report?date=${encodeURIComponent(state.currentDate)}&hour=${encodeURIComponent(state.currentHour)}`);
+  const payload = await resp.json();
+
+  renderStats(report, payload.json_data || null);
+  renderJsonTable(payload.json_data || null);
+
+  const mdBox = document.getElementById("mdView");
+  if (payload.markdown) {
+    mdBox.className = "";
+    mdBox.innerHTML = renderMarkdown(payload.markdown);
+  } else {
+    mdBox.className = "empty";
+    mdBox.innerHTML = "该时段无 Markdown 日报";
+  }
+}
+
+async function init() {
+  const resp = await fetch('/api/reports');
+  const data = await resp.json();
+  state.reports = (data.reports || []).sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.hour.localeCompare(a.hour);
+  });
+
+  buildDateMap();
+
+  if (!state.reports.length) {
+    document.getElementById("stats").textContent = "未找到日报缓存";
+    return;
+  }
+
+  state.currentDate = state.reports[0].date;
+  state.currentMonth = monthKeyFromDate(state.currentDate);
+
+  document.getElementById("prevMonth").addEventListener("click", () => {
+    state.currentMonth = addMonth(state.currentMonth, -1);
+    renderCalendar();
+  });
+
+  document.getElementById("nextMonth").addEventListener("click", () => {
+    state.currentMonth = addMonth(state.currentMonth, 1);
+    renderCalendar();
+  });
+
+  document.getElementById("tabJson").addEventListener("click", () => switchTab("json"));
+  document.getElementById("tabMd").addEventListener("click", () => switchTab("md"));
+
+  renderCalendar();
+  renderHourCards();
+  switchTab("md");
+  await loadReport();
+}
+
+init().catch(err => {
+  document.getElementById("stats").textContent = `加载失败: ${err.message}`;
+});
+</script>
+</body>
+</html>

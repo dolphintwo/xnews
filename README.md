@@ -102,6 +102,19 @@ python tools/login_x.py
   ```
   *(注：如果需要在服务器后台长期运行，推荐使用 `nohup python main.py daemon > run.log 2>&1 &`)*
 
+- **启动本地日报查看页面（读取 `caches/`）**：
+  ```bash
+  python main.py view
+  # 或指定端口
+  python main.py view 8000
+  ```
+  然后在浏览器打开 `http://127.0.0.1:8000`，即可表格查看 JSON 推文并渲染 Markdown 日报。
+  
+  如果程序跑在远程 Linux 服务器上，建议使用 SSH 端口转发后在本地浏览器访问：
+  ```bash
+  ssh -L 8000:127.0.0.1:8000 <user>@<server>
+  ```
+
 ### 辅助工具 (`tools/`)
 
 - **单独查询大模型账户余额**：

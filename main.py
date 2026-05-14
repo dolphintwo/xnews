@@ -4,12 +4,14 @@ import json
 from datetime import datetime
 from loguru import logger
 import os
+import threading
 
 from core.scraper import scrape_all_accounts, get_latest_cache
 from core.analyzer import filter_and_extract_recommendations
 from core.config import CACHE_DIR, CRON_EXPRESSION
 from core.notifier import send_dingtalk_markdown, send_telegram_message
 from tools.check_balance import check_deepseek_balance
+from tools.view_reports import run_server
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -117,27 +119,34 @@ def run_all():
     # 执行完毕后在日志中记录当前 DeepSeek 余额
     check_deepseek_balance()
 
-def run_daemon():
-    """以守护进程模式运行，使用 crontab 表达式定时执行"""
+def run_daemon(view_port: int = 8000):
+    """以守护进程模式运行，使用 crontab 表达式定时执行，并默认启动查看页面"""
     if not CRON_EXPRESSION:
         logger.error("未配置 CRON_EXPRESSION，无法启动定时任务。")
         return
-        
+
     logger.info(f"启动后台定时任务模式，当前 CRON 表达式: '{CRON_EXPRESSION}'")
     logger.info("程序将保持运行，并在到达指定时间时自动执行。")
-    
+
+    view_thread = threading.Thread(target=run_view, args=(view_port,), daemon=True)
+    view_thread.start()
+    logger.info(f"已在后台启动日报查看页面线程: http://127.0.0.1:{view_port}")
+
     scheduler = BlockingScheduler()
     try:
-        # 使用配置的 crontab 表达式添加定时任务
         trigger = CronTrigger.from_crontab(CRON_EXPRESSION)
         scheduler.add_job(run_all, trigger)
-        
-        # 启动调度器 (这将阻塞当前线程)
         scheduler.start()
     except ValueError as e:
         logger.error(f"CRON 表达式解析错误: {e}，请检查 .env 文件中的 CRON_EXPRESSION")
     except (KeyboardInterrupt, SystemExit):
         logger.info("定时任务已手动停止。")
+
+
+def run_view(port: int = 8000):
+    logger.info(f"启动日报查看页面: http://127.0.0.1:{port}")
+    run_server(port)
+
 
 def main():
     if len(sys.argv) > 1:
@@ -146,10 +155,26 @@ def main():
             run_scraper()
         elif command == "analyzer":
             run_analyzer()
-        elif command == "daemon":
-            run_daemon()
+        elif command == "daemon" or command == "deamon":
+            view_port = 8000
+            if len(sys.argv) > 2:
+                try:
+                    view_port = int(sys.argv[2])
+                except ValueError:
+                    logger.error(f"端口必须是整数，收到: {sys.argv[2]}")
+                    return
+            run_daemon(view_port)
+        elif command == "view":
+            port = 8000
+            if len(sys.argv) > 2:
+                try:
+                    port = int(sys.argv[2])
+                except ValueError:
+                    logger.error(f"端口必须是整数，收到: {sys.argv[2]}")
+                    return
+            run_view(port)
         else:
-            logger.error(f"未知的命令: {command}。支持的命令有: scraper, analyzer, daemon")
+            logger.error(f"未知的命令: {command}。支持的命令有: scraper, analyzer, daemon(deamon), view")
     else:
         logger.info("程序启动！即将执行完整的抓取和分析任务。")
         logger.info("如果首次运行，请确保已经执行 `python tools/login_x.py` 完成账号登录缓存。")
